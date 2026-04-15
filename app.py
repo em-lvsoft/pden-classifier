@@ -70,14 +70,16 @@ def determine_category(pressure, volume, equipment_type, medium_state, medium_gr
     if not coordinates:
         return "Unknown Category"
 
+    # Check highest category first — per directive, in case of doubt
+    # the higher (stricter) category applies
     checks = [
-        ("cat_0",   "Category 0"),
-        ("cat_i",   "Category I"),
-        ("cat_ib",  "Category I"),
-        ("cat_ii",  "Category II"),
-        ("cat_iib", "Category II"),
-        ("cat_iii", "Category III"),
         ("cat_iv",  "Category IV"),
+        ("cat_iii", "Category III"),
+        ("cat_iib", "Category II"),
+        ("cat_ii",  "Category II"),
+        ("cat_ib",  "Category I"),
+        ("cat_i",   "Category I"),
+        ("cat_0",   "Category 0"),
     ]
     for poly_key, cat_name in checks:
         if poly_key in coordinates and is_inside(volume, pressure, coordinates[poly_key]["x"], coordinates[poly_key]["y"]):
@@ -111,16 +113,15 @@ def classify_ped(equipment_type, medium_state, pressure, volume, diameter, mediu
 # ── Conformity procedure ─────────────────────────────────────────────
 def conformity_procedure(category):
     modules = CATEGORY_MODULES.get(category, [])
-    if category == "Category IV":
-        return "B - Design type + F", modules
-    elif category == "Category III":
-        return "B - Design type + C", modules
-    elif category == "Category II":
-        return "A - Internal production control", modules
-    elif category == "Not subject to PED":
-        return "Not applicable", []
-    else:
-        return "A - Self certification", modules
+    procedures = {
+        "Category IV":        "Module B (EU type-examination) combined with D, F — or Module G or H1",
+        "Category III":       "Module B (EU type-examination) combined with C2, D, E, F — or Module H",
+        "Category II":        "Module A2, D1 or E1",
+        "Category I":         "Module A (internal production control)",
+        "Category 0":         "Art. 4 para. (3) — good engineering practice, no notified body required",
+        "Not subject to PED": "Not applicable",
+    }
+    return procedures.get(category, "Not applicable"), modules
 
 
 # ── Diagram generation ───────────────────────────────────────────────
