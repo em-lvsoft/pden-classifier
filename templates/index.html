@@ -6,145 +6,211 @@
     <title>PED Classification Module</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        body { background-color: #f8f9fa; }
-        .card { border: none; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
-        .result-card { margin-top: 2rem; }
-        .diagram-img {
-            max-width: 100%;
-            height: auto;
-            border: 1px solid #ddd;
-            border-radius: 8px;
-            padding: 8px;
-            background: #fff;
-        }
-        .badge-cat { font-size: 1.1rem; }
+        body { background: #f5f7fb; }
+        .page-shell { max-width: 980px; }
+        .card { border: none; box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08); }
+        .section-title { font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.06em; color: #475569; }
+        .diagram-img { max-width: 100%; height: auto; border-radius: 12px; border: 1px solid #dbe1ea; background: white; padding: 8px; }
+        .badge-cat { font-size: 1rem; }
+        .helper { color: #64748b; font-size: 0.92rem; }
     </style>
 </head>
 <body>
-<div class="container py-4" style="max-width: 860px;">
-
-    <h2 class="mb-4">PED Classification Module</h2>
-    <p class="text-muted mb-4">Classification according to Pressure Equipment Directive 2014/68/EU</p>
+<div class="container py-4 page-shell">
+    <div class="mb-4">
+        <h1 class="h3 mb-2">PED Classification Module</h1>
+        <p class="text-muted mb-0">Overhauled project structure for PED/PDEN classification with explicit rule paths for vessels, piping, steam generators and pressure accessories.</p>
+    </div>
 
     <div class="card p-4 mb-4">
         <form method="POST" action="/classify" id="pedForm">
+            <div class="row g-3">
+                <div class="col-12">
+                    <div class="section-title">Equipment</div>
+                </div>
 
-            <!-- Equipment Type -->
-            <div class="mb-3">
-                <label class="form-label fw-semibold">Equipment Type (Article 1/2)</label>
-                <select name="equipment_type" id="equipmentType" class="form-select" required>
-                    <option value="">Select Equipment Type</option>
-                    <option value="Vessel" {{ 'selected' if equipment_type=='Vessel' }}>Vessel</option>
-                    <option value="Piping" {{ 'selected' if equipment_type=='Piping' }}>Piping</option>
-                    <option value="Pressure-bearing parts" {{ 'selected' if equipment_type=='Pressure-bearing parts' }}>Pressure-bearing parts</option>
-                    <option value="Steam/Hot water generators" {{ 'selected' if equipment_type=='Steam/Hot water generators' }}>Steam/Hot water generators</option>
-                </select>
+                <div class="col-md-6">
+                    <label class="form-label fw-semibold">Equipment Type</label>
+                    <select name="equipment_type" id="equipmentType" class="form-select" required>
+                        <option value="">Select equipment type</option>
+                        <option value="Vessel" {{ 'selected' if equipment_type=='Vessel' }}>Vessel</option>
+                        <option value="Piping" {{ 'selected' if equipment_type=='Piping' }}>Piping</option>
+                        <option value="Pressure accessories" {{ 'selected' if equipment_type=='Pressure accessories' }}>Pressure accessories</option>
+                        <option value="Pressure-bearing parts" {{ 'selected' if equipment_type=='Pressure-bearing parts' }}>Pressure-bearing parts (legacy alias)</option>
+                        <option value="Steam/Hot water generators" {{ 'selected' if equipment_type=='Steam/Hot water generators' }}>Steam/Hot water generators</option>
+                    </select>
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label fw-semibold">Medium State</label>
+                    <select name="medium_state" class="form-select" required>
+                        <option value="">Select medium state</option>
+                        <option value="gaseous" {{ 'selected' if medium_state=='gaseous' }}>Gaseous or liquid with vapour pressure above 0.5 bar</option>
+                        <option value="liquid_low" {{ 'selected' if medium_state=='liquid_low' }}>Liquid with vapour pressure at or below 0.5 bar</option>
+                    </select>
+                </div>
+
+                <div class="col-md-4">
+                    <label class="form-label fw-semibold">Maximum Allowable Pressure PS (bar)</label>
+                    <input type="number" name="pressure" class="form-control" step="any" required value="{{ pressure if pressure else '' }}">
+                </div>
+
+                <div class="col-md-4" id="volumeGroup">
+                    <label class="form-label fw-semibold">Volume (L)</label>
+                    <input type="number" name="volume" class="form-control" step="any" value="{{ volume if volume else '' }}">
+                </div>
+
+                <div class="col-md-4" id="diameterGroup">
+                    <label class="form-label fw-semibold">Nominal Diameter DN</label>
+                    <input type="number" name="diameter" class="form-control" step="any" value="{{ diameter if diameter else '' }}">
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label fw-semibold">Medium Group</label>
+                    <select name="medium_group" class="form-select" required>
+                        <option value="">Select medium group</option>
+                        <option value="Group 1 - dangerous" {{ 'selected' if medium_group=='Group 1 - dangerous' }}>Group 1 - dangerous</option>
+                        <option value="Group 2 - all others" {{ 'selected' if medium_group=='Group 2 - all others' }}>Group 2 - all others</option>
+                    </select>
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label fw-semibold">Fluid Temperature (°C)</label>
+                    <input type="number" name="fluid_temperature_c" class="form-control" step="any" value="{{ fluid_temperature_c if fluid_temperature_c else '' }}">
+                    <div class="helper mt-1">Used for the high-temperature uplift of Table 7 piping above 350 °C.</div>
+                </div>
+
+                <div class="col-12 mt-2">
+                    <div class="section-title">Special Cases</div>
+                </div>
+
+                <div class="col-md-6">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" name="unstable_gas" value="true" id="unstableGas" {{ 'checked' if unstable_gas }}>
+                        <label class="form-check-label" for="unstableGas">Unstable gas</label>
+                    </div>
+                </div>
+
+                <div class="col-md-6">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" name="portable_extinguisher_or_breathing_apparatus" value="true" id="portableEquipment" {{ 'checked' if portable_extinguisher_or_breathing_apparatus }}>
+                        <label class="form-check-label" for="portableEquipment">Portable extinguisher / breathing apparatus bottle</label>
+                    </div>
+                </div>
+
+                <div class="col-md-6" id="pressureCookerGroup">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" name="pressure_cooker" value="true" id="pressureCooker" {{ 'checked' if pressure_cooker }}>
+                        <label class="form-check-label" for="pressureCooker">Pressure cooker</label>
+                    </div>
+                </div>
+
+                <div class="col-md-6" id="warmWaterGroup">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" name="warm_water_assembly" value="true" id="warmWaterAssembly" {{ 'checked' if warm_water_assembly }}>
+                        <label class="form-check-label" for="warmWaterAssembly">Warm-water assembly special note</label>
+                    </div>
+                </div>
+
+                <div class="col-12">
+                    <button type="submit" class="btn btn-primary w-100">Classify</button>
+                </div>
             </div>
-
-            <!-- Diameter (only for Piping) -->
-            <div class="mb-3" id="diameterGroup" style="display:none;">
-                <label class="form-label fw-semibold">Diameter DN (only for piping)</label>
-                <input type="number" name="diameter" class="form-control" step="any"
-                       value="{{ diameter if diameter else '' }}">
-            </div>
-
-            <!-- Medium State -->
-            <div class="mb-3">
-                <label class="form-label fw-semibold">Medium State (Article 4)</label>
-                <select name="medium_state" class="form-select" required>
-                    <option value="">Select Medium State</option>
-                    <option value="gaseous" {{ 'selected' if medium_state=='gaseous' }}>Gaseous or Liquid (pD &gt; 0.5 bar)</option>
-                    <option value="liquid_low" {{ 'selected' if medium_state=='liquid_low' }}>Liquid (pD &le; 0.5 bar)</option>
-                </select>
-            </div>
-
-            <!-- Pressure -->
-            <div class="mb-3">
-                <label class="form-label fw-semibold">Maximum Allowable Pressure PS (bar)</label>
-                <input type="number" name="pressure" class="form-control" step="any" required
-                       value="{{ pressure if pressure else '' }}">
-            </div>
-
-            <!-- Volume -->
-            <div class="mb-3">
-                <label class="form-label fw-semibold">Volume (L)</label>
-                <input type="number" name="volume" class="form-control" step="any" required
-                       value="{{ volume if volume else '' }}">
-            </div>
-
-            <!-- Medium Group -->
-            <div class="mb-3">
-                <label class="form-label fw-semibold">Medium Group (Article 13)</label>
-                <select name="medium_group" class="form-select" required>
-                    <option value="">Select Medium Group</option>
-                    <option value="Group 1 - dangerous" {{ 'selected' if medium_group=='Group 1 - dangerous' }}>Group 1 - dangerous</option>
-                    <option value="Group 2 - all others" {{ 'selected' if medium_group=='Group 2 - all others' }}>Group 2 - all others</option>
-                </select>
-            </div>
-
-            <button type="submit" class="btn btn-primary w-100">Classify</button>
         </form>
     </div>
 
-    <!-- Error -->
     {% if error %}
     <div class="alert alert-danger">{{ error }}</div>
     {% endif %}
 
-    <!-- Results -->
     {% if category %}
-    <div class="card result-card p-4 mb-4">
-        <h4 class="mb-3">Classification Result</h4>
+    <div class="card p-4 mb-4">
+        <h2 class="h5 mb-3">Classification Result</h2>
+        <div class="table-responsive">
+            <table class="table table-bordered align-middle mb-0">
+                <tr>
+                    <th style="width: 28%">Category</th>
+                    <td><span class="badge bg-primary badge-cat">{{ category }}</span></td>
+                </tr>
+                <tr>
+                    <th>Conformity Procedure</th>
+                    <td>{{ procedure }}</td>
+                </tr>
+                <tr>
+                    <th>Available Modules</th>
+                    <td>
+                        {% if modules %}
+                            {% for m in modules %}
+                                <span class="badge bg-secondary me-1">{{ m }}</span>
+                            {% endfor %}
+                        {% else %}
+                            <em>No modules applicable</em>
+                        {% endif %}
+                    </td>
+                </tr>
+                <tr>
+                    <th>Rule Basis</th>
+                    <td>{{ basis }}</td>
+                </tr>
+                <tr>
+                    <th>Applied Table</th>
+                    <td>{{ table if table else 'None' }}</td>
+                </tr>
+                <tr>
+                    <th>Scope</th>
+                    <td>{{ scope }}</td>
+                </tr>
+            </table>
+        </div>
 
-        <table class="table table-bordered">
-            <tr>
-                <th style="width:40%">Category</th>
-                <td>
-                    <span class="badge bg-primary badge-cat">{{ category }}</span>
-                </td>
-            </tr>
-            <tr>
-                <th>Conformity Procedure</th>
-                <td>{{ procedure }}</td>
-            </tr>
-            <tr>
-                <th>Available Modules</th>
-                <td>
-                    {% if modules %}
-                        {% for m in modules %}
-                            <span class="badge bg-secondary me-1">{{ m }}</span>
-                        {% endfor %}
-                    {% else %}
-                        <em>No modules applicable</em>
-                    {% endif %}
-                </td>
-            </tr>
-        </table>
+        {% if notes %}
+        <div class="mt-3">
+            <div class="fw-semibold mb-2">Notes</div>
+            <ul class="mb-0">
+                {% for note in notes %}
+                <li>{{ note }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
     </div>
     {% endif %}
 
-    <!-- Diagram -->
     {% if show_diagram %}
-    <div class="card result-card p-4 mb-4">
-        <h4 class="mb-3">Classification Diagram</h4>
-        <img class="diagram-img"
-             src="/diagram?equipment_type={{ equipment_type }}&medium_state={{ medium_state }}&pressure={{ pressure }}&volume={{ volume }}&medium_group={{ medium_group }}"
-             alt="PED Classification Diagram">
+    <div class="card p-4 mb-4">
+        <h2 class="h5 mb-3">Classification Diagram</h2>
+        <p class="helper">Diagram output is currently available for PS/V-based paths in this project version.</p>
+        <img
+            class="diagram-img"
+            src="/diagram?equipment_type={{ equipment_type }}&medium_state={{ medium_state }}&pressure={{ pressure }}&volume={{ volume }}&diameter={{ diameter }}&medium_group={{ medium_group }}&unstable_gas={{ unstable_gas }}&portable_extinguisher_or_breathing_apparatus={{ portable_extinguisher_or_breathing_apparatus }}&fluid_temperature_c={{ fluid_temperature_c }}&pressure_cooker={{ pressure_cooker }}&warm_water_assembly={{ warm_water_assembly }}"
+            alt="PED Classification Diagram"
+        >
     </div>
     {% endif %}
-
 </div>
 
 <script>
-    // Show/hide diameter field based on equipment type
-    const eqSelect = document.getElementById('equipmentType');
-    const diaGroup = document.getElementById('diameterGroup');
+    const equipmentType = document.getElementById("equipmentType");
+    const diameterGroup = document.getElementById("diameterGroup");
+    const volumeGroup = document.getElementById("volumeGroup");
+    const pressureCookerGroup = document.getElementById("pressureCookerGroup");
+    const warmWaterGroup = document.getElementById("warmWaterGroup");
 
-    function toggleDiameter() {
-        diaGroup.style.display = eqSelect.value === 'Piping' ? 'block' : 'none';
+    function toggleFields() {
+        const value = equipmentType.value;
+        const needsDiameter = value === "Piping" || value === "Pressure accessories" || value === "Pressure-bearing parts";
+        const needsVolume = value !== "Piping";
+        const steamMode = value === "Steam/Hot water generators";
+        const vesselMode = value === "Vessel";
+
+        diameterGroup.style.display = needsDiameter ? "block" : "none";
+        volumeGroup.style.display = needsVolume ? "block" : "none";
+        pressureCookerGroup.style.display = steamMode ? "block" : "none";
+        warmWaterGroup.style.display = vesselMode ? "block" : "none";
     }
-    eqSelect.addEventListener('change', toggleDiameter);
-    toggleDiameter(); // run on page load to handle form re-population
+
+    equipmentType.addEventListener("change", toggleFields);
+    toggleFields();
 </script>
 </body>
 </html>

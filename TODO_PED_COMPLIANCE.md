@@ -1,91 +1,52 @@
-# PED Compliance — Offene Punkte
+# PED Compliance - Current Status After Overhaul
 
-Offene fachliche Punkte zur vollstaendigen Umsetzung der Druckgeraeterichtlinie 2014/68/EU, Anhang II.
+This repository now has a dedicated PED engine with explicit rule paths for:
 
----
+- vessels
+- piping
+- steam / hot-water generators
+- pressure accessories
+- special-case uplifts and notes
 
-## 1. Piping-Klassifizierung: Diagramm-basierte Logik fehlt
+That is a substantial step forward from the previous mixed logic, but a few compliance-oriented follow-ups still matter if the project is meant to support production conformity decisions.
 
-**Status:** Offen
-**Prioritaet:** Hoch
-**Betrifft:** `classify_ped()` — Zeilen 96-106
+## 1. Verify Annex II demarcation data line-by-line
 
-**Problem:**
-Die aktuelle Piping-Klassifizierung nutzt nur einfache P x DN Schwellwerte:
-- P x DN >= 1000 (Gruppe 1) → Kat IV
-- P x DN >= 100 → Kat III
-- P x DN >= 50 → Kat II
-- Sonst → Kat I
+**Priority:** High
 
-Die DGRL Anhang II definiert fuer Rohrleitungen jedoch eigene grafische Diagramme (Tabellen 6-9) mit logarithmischen Achsen (DN auf X-Achse, PS auf Y-Achse) und Polygon-Grenzen — analog zu den Behaelter-Tabellen.
+The project now has explicit table routing, but the exact geometric demarcation data still needs formal verification against the official Annex II tables, especially for:
 
-**Loesung:**
-Eigene Polygon-Koordinaten fuer Tabellen 6-9 erfassen und in `POLYGON_COORDINATES` ergaenzen. Die Piping-Logik in `classify_ped()` muss dann `determine_category()` mit DN statt Volume aufrufen.
+- Table 5
+- Tables 6 to 9
 
-**Referenz:** DGRL 2014/68/EU, Anhang II, Tabelle 6 (Gas/Gr.1), Tabelle 7 (Gas/Gr.2), Tabelle 8 (Fluessigkeit/Gr.1), Tabelle 9 (Fluessigkeit/Gr.2)
+## 2. Confirm intended scope for pressure accessories
 
----
+**Priority:** High
 
-## 2. Dampferzeuger: Eigene Klassifizierungstabelle fehlt
+The engine now evaluates pressure accessories on both vessel and piping bases and selects the higher category when both inputs are present. That matches the directive's general logic, but the product team should still confirm which accessory families are intended to be supported by the UI and API.
 
-**Status:** Offen
-**Prioritaet:** Hoch
-**Betrifft:** `classify_ped()` und `determine_category()`
+## 3. Decide whether provisional piping thresholds should be replaced by explicit polygons
 
-**Problem:**
-Der Equipment-Typ "Steam/Hot water generators" nutzt aktuell die gleiche Polygon-Logik wie Behaelter (Vessels). Die DGRL sieht fuer Dampferzeuger jedoch eine eigene Tabelle vor (Tabelle 5, Anhang II) mit V (Volumen) auf der X-Achse und PS (Druck) auf der Y-Achse, aber mit anderen Grenzwerten.
+**Priority:** High
 
-**Loesung:**
-- Neue Polygon-Koordinaten gemaess Tabelle 5 erfassen
-- In `classify_ped()` bei Equipment-Typ "Steam/Hot water generators" separaten Lookup ausfuehren
+The current overhaul gives piping its own rule path and special-case handling. If the goal is a diagram-faithful implementation of Annex II Tables 6 to 9, the next step is to replace the project threshold bands with formally reviewed line definitions or polygons.
 
-**Referenz:** DGRL 2014/68/EU, Anhang II, Tabelle 5
+## 4. Expand regression cases from legal source material
 
----
+**Priority:** Medium
 
-## 3. Druckzubehoer: Klassifizierung nach hoechstem Risiko fehlt
+The repository now includes automated tests. The next improvement is to add authoritative reference cases derived from:
 
-**Status:** Offen
-**Prioritaet:** Mittel
-**Betrifft:** `classify_ped()`
+- internal compliance examples
+- approved engineering calculations
+- officially interpreted boundary cases, if available
 
-**Problem:**
-Der Equipment-Typ "Pressure-bearing parts" (Druckzubehoer / Ausruestungsteile mit Druckfunktion) nutzt aktuell die gleiche Logik wie Behaelter. Gemaess Art. 13 Abs. 2 der DGRL werden Ausruestungsteile jedoch nach der hoechsten Kategorie der angeschlossenen Ausruestung klassifiziert, nicht nach eigenen Diagrammen.
+## 5. Clarify "engineering support" versus "formal conformity decision"
 
-**Loesung:**
-- Entweder: Hinweis im Frontend anzeigen, dass der Nutzer die Kategorie des angeschlossenen Geraets ermitteln und uebernehmen soll
-- Oder: Zusaetzliches Eingabefeld fuer die Kategorie des uebergeordneten Systems
+**Priority:** Medium
 
-**Referenz:** DGRL 2014/68/EU, Art. 13 Abs. 2
+The README now calls out the boundary, but if this is exposed to end users, the UI and API responses should also state whether the result is:
 
----
-
-## 4. Fluessigkeiten Gruppe 1 (Tabelle 3): Grenzwerte pruefen
-
-**Status:** Offen
-**Prioritaet:** Mittel
-**Betrifft:** `POLYGON_COORDINATES["liquid_low_group1-dangerous"]`
-
-**Problem:**
-Die Polygon-Koordinaten fuer Fluessigkeiten Gruppe 1 (Tabelle 3) muessen gegen die originalen Diagrammgrenzen der DGRL verifiziert werden. Insbesondere:
-- Die Schwelle PS = 10 bar fuer den Uebergang Art. 4(3) → Kat I
-- Die Schwelle PS x V = 200 fuer Kat I → Kat II
-- Ob die Koordinaten fuer `cat_i` (y=[10, 0.5, 0.5, 10]) korrekt den unteren Bereich von Kat I abbilden
-
-**Loesung:**
-Polygon-Koordinaten mit dem originalen Diagramm in Anhang II Tabelle 3 abgleichen und ggf. korrigieren.
-
-**Referenz:** DGRL 2014/68/EU, Anhang II, Tabelle 3
-
----
-
-## 5. Fluessigkeiten Gruppe 2 (Tabelle 4): Grenzwerte pruefen
-
-**Status:** Offen
-**Prioritaet:** Mittel
-**Betrifft:** `POLYGON_COORDINATES["liquid_low_group2-allothers"]`
-
-**Problem:**
-Analog zu Punkt 4 muessen die Polygon-Koordinaten fuer Tabelle 4 verifiziert werden. Die aktuelle `cat_0` Polygon-Form weicht von der typischen Struktur der anderen Tabellen ab.
-
-**Referenz:** DGRL 2014/68/EU, Anhang II, Tabelle 4
+- an engineering pre-classification
+- an internal compliance aid
+- a formally validated classification output
