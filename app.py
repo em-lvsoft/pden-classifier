@@ -218,5 +218,52 @@ def diagram():
         return "Error generating diagram", 500
 
 
+# ══════════════════════════════════════════════════════════════════════
+#  JSON API (curl / Postman / externe Systeme)
+# ══════════════════════════════════════════════════════════════════════
+
+@app.route('/api/pden/classify', methods=['POST'])
+def api_classify():
+    try:
+        data = request.json
+        equipment_type = data.get('equipment_type')
+        medium_state = data.get('medium_state')
+        pressure = float(data.get('pressure'))
+        volume = float(data.get('volume'))
+        diameter = float(data.get('diameter')) if equipment_type == "Piping" and data.get('diameter') else None
+        medium_group = data.get('medium_group')
+
+        category = classify_ped(equipment_type, medium_state, pressure, volume, diameter, medium_group)
+        procedure, modules = conformity_procedure(category)
+
+        return jsonify({
+            "category": category,
+            "procedure": procedure,
+            "modules": modules,
+            "pressure": pressure,
+            "volume": volume
+        })
+    except Exception as e:
+        logging.error(f"API classification error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/pden/diagram', methods=['POST'])
+def api_diagram():
+    try:
+        data = request.json
+        equipment_type = data.get('equipment_type')
+        medium_state = data.get('medium_state')
+        pressure = float(data.get('pressure'))
+        volume = float(data.get('volume'))
+        medium_group = data.get('medium_group')
+
+        img = generate_ped_diagram(pressure, volume, equipment_type, medium_state, medium_group)
+        return send_file(img, mimetype='image/png')
+    except Exception as e:
+        logging.error(f"API diagram error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
