@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PED Classification Module</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #f8f9fa; }
+        .card { border: none; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .result-card { margin-top: 2rem; }
+        .diagram-img {
+            max-width: 100%;
+            height: auto;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 8px;
+            background: #fff;
+        }
+        .badge-cat { font-size: 1.1rem; }
+    </style>
+</head>
+<body>
+<div class="container py-4" style="max-width: 860px;">
+
+    <h2 class="mb-4">PED Classification Module</h2>
+    <p class="text-muted mb-4">Classification according to Pressure Equipment Directive 2014/68/EU</p>
+
+    <div class="card p-4 mb-4">
+        <form method="POST" action="/classify" id="pedForm">
+
+            <!-- Equipment Type -->
+            <div class="mb-3">
+                <label class="form-label fw-semibold">Equipment Type (Article 1/2)</label>
+                <select name="equipment_type" id="equipmentType" class="form-select" required>
+                    <option value="">Select Equipment Type</option>
+                    <option value="Vessel" {{ 'selected' if equipment_type=='Vessel' }}>Vessel</option>
+                    <option value="Piping" {{ 'selected' if equipment_type=='Piping' }}>Piping</option>
+                    <option value="Pressure-bearing parts" {{ 'selected' if equipment_type=='Pressure-bearing parts' }}>Pressure-bearing parts</option>
+                    <option value="Steam/Hot water generators" {{ 'selected' if equipment_type=='Steam/Hot water generators' }}>Steam/Hot water generators</option>
+                </select>
+            </div>
+
+            <!-- Diameter (only for Piping) -->
+            <div class="mb-3" id="diameterGroup" style="display:none;">
+                <label class="form-label fw-semibold">Diameter DN (only for piping)</label>
+                <input type="number" name="diameter" class="form-control" step="any"
+                       value="{{ diameter if diameter else '' }}">
+            </div>
+
+            <!-- Medium State -->
+            <div class="mb-3">
+                <label class="form-label fw-semibold">Medium State (Article 4)</label>
+                <select name="medium_state" class="form-select" required>
+                    <option value="">Select Medium State</option>
+                    <option value="gaseous" {{ 'selected' if medium_state=='gaseous' }}>Gaseous or Liquid (pD &gt; 0.5 bar)</option>
+                    <option value="liquid_low" {{ 'selected' if medium_state=='liquid_low' }}>Liquid (pD &le; 0.5 bar)</option>
+                </select>
+            </div>
+
+            <!-- Pressure -->
+            <div class="mb-3">
+                <label class="form-label fw-semibold">Maximum Allowable Pressure PS (bar)</label>
+                <input type="number" name="pressure" class="form-control" step="any" required
+                       value="{{ pressure if pressure else '' }}">
+            </div>
+
+            <!-- Volume -->
+            <div class="mb-3">
+                <label class="form-label fw-semibold">Volume (L)</label>
+                <input type="number" name="volume" class="form-control" step="any" required
+                       value="{{ volume if volume else '' }}">
+            </div>
+
+            <!-- Medium Group -->
+            <div class="mb-3">
+                <label class="form-label fw-semibold">Medium Group (Article 13)</label>
+                <select name="medium_group" class="form-select" required>
+                    <option value="">Select Medium Group</option>
+                    <option value="Group 1 - dangerous" {{ 'selected' if medium_group=='Group 1 - dangerous' }}>Group 1 - dangerous</option>
+                    <option value="Group 2 - all others" {{ 'selected' if medium_group=='Group 2 - all others' }}>Group 2 - all others</option>
+                </select>
+            </div>
+
+            <button type="submit" class="btn btn-primary w-100">Classify</button>
+        </form>
+    </div>
+
+    <!-- Error -->
+    {% if error %}
+    <div class="alert alert-danger">{{ error }}</div>
+    {% endif %}
+
+    <!-- Results -->
+    {% if category %}
+    <div class="card result-card p-4 mb-4">
+        <h4 class="mb-3">Classification Result</h4>
+
+        <table class="table table-bordered">
+            <tr>
+                <th style="width:40%">Category</th>
+                <td>
+                    <span class="badge bg-primary badge-cat">{{ category }}</span>
+                </td>
+            </tr>
+            <tr>
+                <th>Conformity Procedure</th>
+                <td>{{ procedure }}</td>
+            </tr>
+            <tr>
+                <th>Available Modules</th>
+                <td>
+                    {% if modules %}
+                        {% for m in modules %}
+                            <span class="badge bg-secondary me-1">{{ m }}</span>
+                        {% endfor %}
+                    {% else %}
+                        <em>No modules applicable</em>
+                    {% endif %}
+                </td>
+            </tr>
+        </table>
+    </div>
+    {% endif %}
+
+    <!-- Diagram -->
+    {% if show_diagram %}
+    <div class="card result-card p-4 mb-4">
+        <h4 class="mb-3">Classification Diagram</h4>
+        <img class="diagram-img"
+             src="/diagram?equipment_type={{ equipment_type }}&medium_state={{ medium_state }}&pressure={{ pressure }}&volume={{ volume }}&medium_group={{ medium_group }}"
+             alt="PED Classification Diagram">
+    </div>
+    {% endif %}
+
+</div>
+
+<script>
+    // Show/hide diameter field based on equipment type
+    const eqSelect = document.getElementById('equipmentType');
+    const diaGroup = document.getElementById('diameterGroup');
+
+    function toggleDiameter() {
+        diaGroup.style.display = eqSelect.value === 'Piping' ? 'block' : 'none';
+    }
+    eqSelect.addEventListener('change', toggleDiameter);
+    toggleDiameter(); // run on page load to handle form re-population
+</script>
+</body>
+</html>
