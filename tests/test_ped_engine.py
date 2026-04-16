@@ -116,7 +116,7 @@ class PedEngineTests(unittest.TestCase):
         self.assertEqual(determine_piping_base_category(rule_set, 30, 300), "Category I")
 
     def test_table_6_gas_group1_category_iii(self):
-        # PS=30, DN=200 => PS×DN=6000 > 5000, DN>100 => Category III
+        # PS=30, DN=200 => PS×DN=6000 > 1000 => Category III
         result = classify_ped(
             ClassificationInput(
                 equipment_type="Piping",
@@ -124,6 +124,100 @@ class PedEngineTests(unittest.TestCase):
                 pressure=30,
                 diameter=200,
                 medium_group="Group 1 - dangerous",
+            )
+        )
+        self.assertEqual(result.category, "Category III")
+
+    def test_table_6_gas_group1_cat_iii_at_small_dn(self):
+        # PS=30, DN=50 => PS×DN=1500 > 1000 => Category III.
+        # This is the boundary that was wrong before the fix
+        # (the old 5000/2000 thresholds would have returned Cat I).
+        result = classify_ped(
+            ClassificationInput(
+                equipment_type="Piping",
+                medium_state="gaseous",
+                pressure=30,
+                diameter=50,
+                medium_group="Group 1 - dangerous",
+            )
+        )
+        self.assertEqual(result.category, "Category III")
+
+    def test_table_6_gas_group1_cat_ii(self):
+        # PS=20, DN=40 => PS×DN=800, 350 < PS×DN <= 1000 => Category II
+        result = classify_ped(
+            ClassificationInput(
+                equipment_type="Piping",
+                medium_state="gaseous",
+                pressure=20,
+                diameter=40,
+                medium_group="Group 1 - dangerous",
+            )
+        )
+        self.assertEqual(result.category, "Category II")
+
+    def test_table_6_gas_group1_cat_i(self):
+        # PS=5, DN=50 => PS×DN=250, 25 < PS×DN <= 350 => Category I
+        result = classify_ped(
+            ClassificationInput(
+                equipment_type="Piping",
+                medium_state="gaseous",
+                pressure=5,
+                diameter=50,
+                medium_group="Group 1 - dangerous",
+            )
+        )
+        self.assertEqual(result.category, "Category I")
+
+    def test_table_6_gas_group1_below_dn_scope(self):
+        # DN=25 is not > 25 => out of PED scope for Table 6 => Category 0
+        result = classify_ped(
+            ClassificationInput(
+                equipment_type="Piping",
+                medium_state="gaseous",
+                pressure=100,
+                diameter=25,
+                medium_group="Group 1 - dangerous",
+            )
+        )
+        self.assertEqual(result.category, "Category 0")
+
+    def test_table_6_gas_group1_below_ps_dn_line(self):
+        # PS=0.6, DN=40 => PS×DN=24, below the PS·DN=25 Art. 4(3) line => Category 0
+        result = classify_ped(
+            ClassificationInput(
+                equipment_type="Piping",
+                medium_state="gaseous",
+                pressure=0.6,
+                diameter=40,
+                medium_group="Group 1 - dangerous",
+            )
+        )
+        self.assertEqual(result.category, "Category 0")
+
+    def test_table_6_gas_group1_boundary_at_1000(self):
+        # PS=10, DN=100 => PS×DN=1000 exactly, not strictly > 1000 => Category II
+        result = classify_ped(
+            ClassificationInput(
+                equipment_type="Piping",
+                medium_state="gaseous",
+                pressure=10,
+                diameter=100,
+                medium_group="Group 1 - dangerous",
+            )
+        )
+        self.assertEqual(result.category, "Category II")
+
+    def test_table_6_unstable_gas_lifts_cat_i(self):
+        # PS=5, DN=50 => PS×DN=250 => Category I, uplift to Category III for unstable gases
+        result = classify_ped(
+            ClassificationInput(
+                equipment_type="Piping",
+                medium_state="gaseous",
+                pressure=5,
+                diameter=50,
+                medium_group="Group 1 - dangerous",
+                unstable_gas=True,
             )
         )
         self.assertEqual(result.category, "Category III")

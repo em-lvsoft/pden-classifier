@@ -80,16 +80,21 @@ TABLE_POLYGONS = {
 # charts and should be verified point-by-point for production use.
 PIPING_RULES = {
     # Table 6: Gas / vapour, Group 1 (dangerous)
+    # Scope entry (Art. 4(1)(c)): DN > 25
+    # Internal boundaries per Annex II Table 6 isopleths PS·DN = 25, 350, 1000.
     ("gaseous", "Group 1 - dangerous"): {
         "table": "table_6",
-        "scope_entry": {"dn_gt": 25},
+        "scope_entry": {"dn_gt": 25, "ps_dn_gt": 25},
         "categories": [
-            {"category": "Category III", "dn_gt": 100, "ps_dn_gt": 5000},
-            {"category": "Category II", "dn_gt": 25, "ps_dn_gt": 2000},
+            {"category": "Category III", "ps_dn_gt": 1000},
+            {"category": "Category II", "ps_dn_gt": 350},
             {"category": "Category I"},
         ],
     },
     # Table 7: Gas / vapour, Group 2
+    # Scope entry (Art. 4(1)(c)): DN > 32 AND PS·DN > 1000
+    # Internal boundaries per Annex II Table 7: PS·DN = 3500 (Cat I/II),
+    # PS·DN = 5000 with DN > 250 (Cat II/III).
     ("gaseous", "Group 2 - all others"): {
         "table": "table_7",
         "scope_entry": {"dn_gt": 32, "ps_dn_gt": 1000},
@@ -100,6 +105,9 @@ PIPING_RULES = {
         ],
     },
     # Table 8: Liquid (VP ≤ 0.5 bar), Group 1 (dangerous)
+    # Scope entry (Art. 4(1)(c)): DN > 25 AND PS·DN > 2000
+    # TODO: Internal Cat II/III boundaries still need line-by-line verification
+    # against the official Annex II Table 8 graphic.
     ("liquid_low", "Group 1 - dangerous"): {
         "table": "table_8",
         "scope_entry": {"dn_gt": 25, "ps_dn_gt": 2000},
@@ -110,6 +118,8 @@ PIPING_RULES = {
         ],
     },
     # Table 9: Liquid (VP ≤ 0.5 bar), Group 2
+    # Scope entry (Art. 4(1)(c)): PS > 10 AND DN > 200 AND PS·DN > 5000
+    # Only Category I exists in this table per PED.
     ("liquid_low", "Group 2 - all others"): {
         "table": "table_9",
         "scope_entry": {"ps_gt": 10, "dn_gt": 200, "ps_dn_gt": 5000},

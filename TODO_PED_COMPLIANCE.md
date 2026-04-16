@@ -14,10 +14,25 @@ That is a substantial step forward from the previous mixed logic, but a few comp
 
 **Priority:** High
 
-The project now has explicit table routing, but the exact geometric demarcation data still needs formal verification against the official Annex II tables, especially for:
+Status of the individual tables:
 
-- Table 5
-- Tables 6 to 9
+- **Table 6 (Gas Group 1):** boundaries corrected to the Annex II isopleths
+  PS·DN = 25 / 350 / 1000 with scope entry DN > 25. Regression tests added.
+- **Table 7 (Gas Group 2):** thresholds DN > 32 / 100 / 250 and
+  PS·DN > 1000 / 3500 / 5000 match Annex II. The > 350 °C uplift is the
+  PED-specific note for Table 7 and is applied in the engine.
+- **Table 8 (Liquid Group 1):** scope entry DN > 25 AND PS·DN > 2000 is
+  correct; internal Cat II / Cat III boundaries still need line-by-line
+  verification against the official Annex II Table 8 graphic.
+- **Table 9 (Liquid Group 2):** scope entry PS > 10 AND DN > 200 AND
+  PS·DN > 5000 matches Annex II; only Category I exists.
+- **Table 5 (Steam / hot-water generators):** still a placeholder that reuses
+  the Table 2 envelope — must be transcribed from the dedicated Annex II
+  Table 5 graphic.
+
+Vessel Tables 1–4 polygons are inherited from the previous project and still
+need a formal point-by-point review (upper-left high-pressure corner in
+particular).
 
 ## 2. Confirm intended scope for pressure accessories
 
