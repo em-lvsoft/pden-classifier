@@ -289,6 +289,28 @@ def _piping_scope_check(entry: Dict, ps: float, dn: float, ps_dn: float) -> bool
     return True
 
 
+def _piping_rule_matches(rule: Dict[str, Any], ps: float, dn: float, ps_dn: float) -> bool:
+    if "ps_gt" in rule and ps <= rule["ps_gt"]:
+        return False
+    if "dn_gt" in rule and dn <= rule["dn_gt"]:
+        return False
+    if "ps_dn_gt" in rule and ps_dn <= rule["ps_dn_gt"]:
+        return False
+    return True
+
+
+def determine_piping_base_category(rule_set: Dict[str, Any], ps: float, dn: float) -> str:
+    ps_dn = ps * dn
+    if not _piping_scope_check(rule_set["scope_entry"], ps, dn, ps_dn):
+        return "Category 0"
+
+    for rule in rule_set["categories"]:
+        if _piping_rule_matches(rule, ps, dn, ps_dn):
+            return rule["category"]
+
+    return "Category I"
+
+
 def classify_piping(data: ClassificationInput) -> Tuple[str, str, List[str]]:
     diameter = ensure_positive("Diameter DN", data.diameter)
     rule_set = PIPING_RULES.get((data.medium_state, data.medium_group))
@@ -302,26 +324,16 @@ def classify_piping(data: ClassificationInput) -> Tuple[str, str, List[str]]:
         "Internal category boundaries are approximate — verify against official Annex II charts for production use.",
     ]
 
+    base_category = determine_piping_base_category(rule_set, data.pressure, diameter)
+
     # Check scope entry (Article 4(1)(c))
-    if not _piping_scope_check(rule_set["scope_entry"], data.pressure, diameter, ps_dn):
+    if base_category == "Category 0":
         return "Category 0", table_name, notes + [
             f"Below PED scope for {table_name.replace('_', ' ').title()}: "
             f"PS={data.pressure} bar, DN={diameter}, PS\u00d7DN={ps_dn:.0f}."
         ]
 
-    # Walk categories from highest to lowest; first match wins
-    category = "Category I"  # fallback if in scope
-    for rule in rule_set["categories"]:
-        matches = True
-        if "dn_gt" in rule and diameter <= rule["dn_gt"]:
-            matches = False
-        if "ps_dn_gt" in rule and ps_dn <= rule["ps_dn_gt"]:
-            matches = False
-        if "ps_gt" in rule and data.pressure <= rule["ps_gt"]:
-            matches = False
-        if matches:
-            category = rule["category"]
-            break
+    category = base_category
 
     # Special-case uplifts
     if data.unstable_gas and table_name == "table_6" and category in {"Category I", "Category II"}:
@@ -335,30 +347,58 @@ def classify_piping(data: ClassificationInput) -> Tuple[str, str, List[str]]:
     return category, table_name, notes
 
 
-def classify_pressure_accessory(data: ClassificationInput) -> Tuple[str, str, List[str]]:
-    candidates: List[Tuple[str, str]] = []
-    notes: List[str] = []
+def _pressure_accessory_candidates(data: ClassificationInput) -> List[Dict[str, Any]]:
+    candidates: List[Dict[str, Any]] = []
 
     if data.volume and data.volume > 0:
         vessel_category, vessel_table, vessel_notes = classify_vessel(data)
-        candidates.append((vessel_category, vessel_table))
-        notes.extend(vessel_notes)
-        notes.append("Pressure accessory evaluated against vessel table because volume is available.")
+        candidates.append(
+            {
+                "basis": "vessel",
+                "category": vessel_category,
+                "table": vessel_table,
+                "x_value": data.volume,
+                "x_label": "Volume (L)",
+                "notes": vessel_notes,
+            }
+        )
 
     if data.diameter and data.diameter > 0:
         piping_category, piping_table, piping_notes = classify_piping(data)
-        candidates.append((piping_category, piping_table))
-        notes.extend(piping_notes)
-        notes.append("Pressure accessory evaluated against piping table because nominal size is available.")
+        candidates.append(
+            {
+                "basis": "piping",
+                "category": piping_category,
+                "table": piping_table,
+                "x_value": data.diameter,
+                "x_label": "DN",
+                "notes": piping_notes,
+            }
+        )
+
+    return candidates
+
+
+def classify_pressure_accessory(data: ClassificationInput) -> Tuple[str, str, List[str]]:
+    candidates = _pressure_accessory_candidates(data)
+    notes: List[str] = []
+
+    for candidate in candidates:
+        notes.extend(candidate["notes"])
+        if candidate["basis"] == "vessel":
+            notes.append("Pressure accessory evaluated against vessel table because volume is available.")
+        else:
+            notes.append("Pressure accessory evaluated against piping table because nominal size is available.")
 
     if not candidates:
         raise ValueError("Pressure accessories require at least volume or diameter to determine the applicable table.")
 
-    category, table_name = candidates[0]
-    for candidate_category, candidate_table in candidates[1:]:
-        if CATEGORY_ORDER.get(candidate_category, -1) > CATEGORY_ORDER.get(category, -1):
-            category = candidate_category
-            table_name = candidate_table
+    category = candidates[0]["category"]
+    table_name = candidates[0]["table"]
+    for candidate in candidates[1:]:
+        if CATEGORY_ORDER.get(candidate["category"], -1) > CATEGORY_ORDER.get(category, -1):
+            category = candidate["category"]
+            table_name = candidate["table"]
 
     if len(candidates) > 1:
         notes.append("Both vessel and piping bases were considered; the higher category was selected.")
@@ -405,14 +445,21 @@ def classify_ped(data: ClassificationInput) -> ClassificationResult:
     )
 
 
-def diagram_table_for_input(data: ClassificationInput) -> Tuple[Optional[str], Optional[float], str]:
+def resolve_diagram_target(data: ClassificationInput) -> Tuple[Optional[str], Optional[float], str]:
     data.equipment_type = normalize_equipment_type(data.equipment_type)
     if data.equipment_type == "Vessel":
         return vessel_table_for_input(data), ensure_positive("Volume", data.volume), "Volume (L)"
     if data.equipment_type == "Steam/Hot water generators":
         return "table_5", ensure_positive("Volume", data.volume), "Volume (L)"
-    if data.equipment_type == "Pressure accessories" and data.volume and data.volume > 0:
-        return vessel_table_for_input(data), data.volume, "Volume (L)"
+    if data.equipment_type == "Pressure accessories":
+        candidates = _pressure_accessory_candidates(data)
+        if not candidates:
+            return None, None, "N/A"
+        selected = candidates[0]
+        for candidate in candidates[1:]:
+            if CATEGORY_ORDER.get(candidate["category"], -1) > CATEGORY_ORDER.get(selected["category"], -1):
+                selected = candidate
+        return selected["table"], selected["x_value"], selected["x_label"]
     if data.equipment_type == "Piping":
         table_name = {
             ("gaseous", "Group 1 - dangerous"): "table_6",
@@ -423,6 +470,24 @@ def diagram_table_for_input(data: ClassificationInput) -> Tuple[Optional[str], O
         if table_name and data.diameter and data.diameter > 0:
             return table_name, data.diameter, "DN"
     return None, None, "N/A"
+
+
+def diagram_table_for_input(data: ClassificationInput) -> Tuple[Optional[str], Optional[float], str]:
+    return resolve_diagram_target(data)
+
+
+def classify_piping_for_diagram(rule_set: Dict[str, Any], ps_grid: Any, dn_grid: Any) -> Any:
+    import numpy as np
+
+    result = np.full(ps_grid.shape, "Category 0", dtype=object)
+    flat_ps = ps_grid.ravel()
+    flat_dn = dn_grid.ravel()
+    flat_result = result.ravel()
+
+    for index, (ps, dn) in enumerate(zip(flat_ps, flat_dn)):
+        flat_result[index] = determine_piping_base_category(rule_set, float(ps), float(dn))
+
+    return result
 
 
 def _generate_piping_diagram(data: ClassificationInput, table_name: str, dn_value: float) -> io.BytesIO:
@@ -436,53 +501,35 @@ def _generate_piping_diagram(data: ClassificationInput, table_name: str, dn_valu
     fig, ax = plt.subplots(figsize=(10, 7))
 
     colors_map = {
-        "Category 0": ("#B0E0E6", 0.4),
-        "Category I": ("#90EE90", 0.7),
-        "Category II": ("#FFFF99", 0.7),
-        "Category III": ("#FFDAB9", 0.7),
+        "Category 0": "#B0E0E6",
+        "Category I": "#90EE90",
+        "Category II": "#FFFF99",
+        "Category III": "#FFDAB9",
     }
 
     dn_min, dn_max = 1, 2000
     ps_min, ps_max = 0.5, 1000
-    dn_range = np.logspace(np.log10(dn_min), np.log10(dn_max), 500)
+    dn_range = np.logspace(np.log10(dn_min), np.log10(dn_max), 220)
+    ps_range = np.logspace(np.log10(ps_min), np.log10(ps_max), 220)
+    dn_grid, ps_grid = np.meshgrid(dn_range, ps_range)
+    category_grid = classify_piping_for_diagram(rule_set, ps_grid, dn_grid)
 
-    # Collect PS×DN boundary curves from the rule set
-    boundaries = []
-    for rule in rule_set["categories"]:
-        ps_dn_gt = rule.get("ps_dn_gt", 0)
-        dn_gt = rule.get("dn_gt", 0)
-        boundaries.append((ps_dn_gt, dn_gt, rule["category"]))
-
-    # Add scope entry as lowest boundary
-    entry = rule_set["scope_entry"]
-    scope_ps_dn = entry.get("ps_dn_gt", 0)
-    scope_dn = entry.get("dn_gt", 0)
-    boundaries.append((scope_ps_dn, scope_dn, "Category 0"))
-
-    # Sort by PS×DN descending (draw highest category first as background)
-    boundaries.sort(key=lambda b: b[0], reverse=True)
-
-    drawn_labels = set()
-    # Draw SEP/Category 0 as full background
-    label_0 = "SEP / Art. 4(3)" if "SEP / Art. 4(3)" not in drawn_labels else None
-    ax.fill_between(dn_range, ps_min, ps_max, color=colors_map["Category 0"][0],
-                     alpha=colors_map["Category 0"][1], label="SEP / Art. 4(3)")
-    drawn_labels.add("SEP / Art. 4(3)")
-
-    # Draw each category region on top
-    for ps_dn_val, dn_gt, category in reversed(boundaries):
-        if category == "Category 0":
+    category_order = ["Category 0", "Category I", "Category II", "Category III"]
+    for category in category_order:
+        mask = category_grid == category
+        if not mask.any():
             continue
-        color, alpha = colors_map.get(category, ("#CCCCCC", 0.3))
-        ps_curve = np.where(
-            dn_range > dn_gt,
-            np.maximum(ps_dn_val / dn_range, ps_min) if ps_dn_val > 0 else ps_min,
-            ps_max + 1,  # hide region where DN condition not met
+        alpha = 0.4 if category == "Category 0" else 0.7
+        label = "SEP / Art. 4(3)" if category == "Category 0" else category
+        ax.contourf(
+            dn_grid,
+            ps_grid,
+            mask.astype(float),
+            levels=[0.5, 1.5],
+            colors=[colors_map[category]],
+            alpha=alpha,
         )
-        label = category if category not in drawn_labels else None
-        drawn_labels.add(category)
-        ax.fill_between(dn_range, ps_curve, ps_max, where=(ps_curve <= ps_max),
-                         color=color, alpha=alpha, label=label)
+        ax.plot([], [], color=colors_map[category], linewidth=10, alpha=alpha, label=label)
 
     ax.plot(dn_value, data.pressure, "bo", markersize=8,
             label=f"Equipment (PS={data.pressure}, DN={dn_value})")

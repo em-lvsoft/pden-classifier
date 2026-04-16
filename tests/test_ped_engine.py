@@ -1,6 +1,12 @@
 import unittest
 
-from ped_engine import ClassificationInput, classify_ped
+from ped_engine import (
+    ClassificationInput,
+    PIPING_RULES,
+    classify_ped,
+    determine_piping_base_category,
+    resolve_diagram_target,
+)
 
 
 class PedEngineTests(unittest.TestCase):
@@ -104,6 +110,11 @@ class PedEngineTests(unittest.TestCase):
         )
         self.assertEqual(result.category, "Category 0")
 
+    def test_table_9_base_category_requires_ps_gate(self):
+        rule_set = PIPING_RULES[("liquid_low", "Group 2 - all others")]
+        self.assertEqual(determine_piping_base_category(rule_set, 9, 400), "Category 0")
+        self.assertEqual(determine_piping_base_category(rule_set, 30, 300), "Category I")
+
     def test_table_6_gas_group1_category_iii(self):
         # PS=30, DN=200 => PS×DN=6000 > 5000, DN>100 => Category III
         result = classify_ped(
@@ -116,6 +127,35 @@ class PedEngineTests(unittest.TestCase):
             )
         )
         self.assertEqual(result.category, "Category III")
+
+    def test_pressure_accessory_diagram_uses_higher_basis(self):
+        table, x_value, x_label = resolve_diagram_target(
+            ClassificationInput(
+                equipment_type="Pressure accessories",
+                medium_state="gaseous",
+                pressure=30,
+                volume=5,
+                diameter=300,
+                medium_group="Group 1 - dangerous",
+            )
+        )
+        self.assertEqual(table, "table_6")
+        self.assertEqual(x_value, 300)
+        self.assertEqual(x_label, "DN")
+
+    def test_pressure_accessory_diagram_uses_vessel_when_only_volume_exists(self):
+        table, x_value, x_label = resolve_diagram_target(
+            ClassificationInput(
+                equipment_type="Pressure accessories",
+                medium_state="gaseous",
+                pressure=10,
+                volume=50,
+                medium_group="Group 2 - all others",
+            )
+        )
+        self.assertEqual(table, "table_2")
+        self.assertEqual(x_value, 50)
+        self.assertEqual(x_label, "Volume (L)")
 
     def test_pressure_accessory_takes_higher_of_v_and_dn_paths(self):
         result = classify_ped(
