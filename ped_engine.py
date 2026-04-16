@@ -139,6 +139,53 @@ POLYGON_ORDER = [
     ("cat_0", "Category 0"),
 ]
 
+# --- Diagram styling ---------------------------------------------------------
+# Risk-semantic palette (neutral → green → amber → orange → red).
+CATEGORY_COLORS = {
+    "Category 0":   "#B0BEC5",
+    "Category I":   "#66BB6A",
+    "Category II":  "#FFCA28",
+    "Category III": "#FB8C00",
+    "Category IV":  "#E53935",
+}
+
+POLYGON_CATEGORY_KEY = {
+    "cat_0": "Category 0",
+    "cat_i": "Category I",
+    "cat_ib": "Category I",
+    "cat_ii": "Category II",
+    "cat_iib": "Category II",
+    "cat_iii": "Category III",
+    "cat_iv": "Category IV",
+}
+
+TABLE_DESCRIPTIONS = {
+    "table_1": "Vessels \u2014 Gases / Group 1 (dangerous)",
+    "table_2": "Vessels \u2014 Gases / Group 2",
+    "table_3": "Vessels \u2014 Liquids / Group 1 (dangerous)",
+    "table_4": "Vessels \u2014 Liquids / Group 2",
+    "table_5": "Steam / Hot-water generators",
+    "table_6": "Piping \u2014 Gases / Group 1 (dangerous)",
+    "table_7": "Piping \u2014 Gases / Group 2",
+    "table_8": "Piping \u2014 Liquids / Group 1 (dangerous)",
+    "table_9": "Piping \u2014 Liquids / Group 2",
+}
+
+# PS·V (vessels) or PS·DN (piping) isopleths annotated on each diagram.
+# These are the Annex II demarcation lines; drawing them as guide lines
+# lets an engineer read off the exact threshold they are crossing.
+TABLE_ISOPLETHS = {
+    "table_1": [25, 50, 200, 1000],
+    "table_2": [50, 200, 1000, 3000],
+    "table_3": [200, 500, 10000],
+    "table_4": [1000, 10000],
+    "table_5": [50, 200, 1000, 3000],
+    "table_6": [25, 350, 1000],
+    "table_7": [1000, 3500, 5000],
+    "table_8": [2000, 5000, 10000],
+    "table_9": [5000],
+}
+
 
 @dataclass
 class ClassificationInput:
@@ -500,27 +547,121 @@ def classify_piping_for_diagram(rule_set: Dict[str, Any], ps_grid: Any, dn_grid:
     return result
 
 
-def _generate_piping_diagram(data: ClassificationInput, table_name: str, dn_value: float) -> io.BytesIO:
+def _style_axes(ax, x_label: str, y_label: str, title: str,
+                x_lim: Tuple[float, float], y_lim: Tuple[float, float]) -> None:
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.set_xlim(*x_lim)
+    ax.set_ylim(*y_lim)
+    ax.set_xlabel(x_label, fontsize=11, color="#263238")
+    ax.set_ylabel(y_label, fontsize=11, color="#263238")
+    ax.set_title(title, fontsize=12.5, pad=12, loc="left", fontweight="semibold", color="#1A237E")
+    ax.grid(which="major", linestyle="-", linewidth=0.5, alpha=0.35, color="#546E7A")
+    ax.grid(which="minor", linestyle=":", linewidth=0.3, alpha=0.25, color="#78909C")
+    ax.tick_params(colors="#37474F", labelsize=9)
+    for spine in ax.spines.values():
+        spine.set_color("#37474F")
+        spine.set_linewidth(1.0)
+
+
+def _draw_isopleths(ax, table_name: str, x_lim: Tuple[float, float],
+                    y_lim: Tuple[float, float], product_axis: str) -> None:
+    """Draw PS·x = const diagonals (slope -1 in log-log) as guide lines."""
+    label_prefix = "PS\u00b7DN" if product_axis == "dn" else "PS\u00b7V"
+    for const in TABLE_ISOPLETHS.get(table_name, []):
+        x_from_y_max = const / y_lim[1]
+        x_from_y_min = const / y_lim[0]
+        x_start = max(x_lim[0], x_from_y_max)
+        x_end = min(x_lim[1], x_from_y_min)
+        if x_start >= x_end:
+            continue
+        y_start = const / x_start
+        y_end = const / x_end
+        ax.plot([x_start, x_end], [y_start, y_end],
+                linestyle="--", linewidth=0.7, color="#37474F",
+                alpha=0.55, zorder=2.5)
+        ax.text(x_start * 1.15, y_start * 0.82,
+                f"{label_prefix} = {const}",
+                fontsize=7.5, color="#263238", alpha=0.9, zorder=3,
+                bbox=dict(boxstyle="round,pad=0.18", fc="white",
+                          ec="#CFD8DC", lw=0.4, alpha=0.85))
+
+
+def _annotate_equipment_point(ax, x: float, y: float, x_label_short: str,
+                              x_lim: Tuple[float, float],
+                              y_lim: Tuple[float, float]) -> None:
+    ax.plot(x, y, marker="o", markersize=11,
+            markeredgecolor="#0D47A1", markerfacecolor="#1E88E5",
+            markeredgewidth=1.6, zorder=10)
+    label = f"Equipment\nPS = {y:g} bar\n{x_label_short} = {x:g}"
+    log_x = math.log10(x)
+    log_y = math.log10(y)
+    x_offset = 55 if (log_x - math.log10(x_lim[0])) < (math.log10(x_lim[1]) - log_x) else -55
+    y_offset = 35 if (log_y - math.log10(y_lim[0])) < (math.log10(y_lim[1]) - log_y) else -35
+    ax.annotate(
+        label,
+        xy=(x, y),
+        xytext=(x_offset, y_offset),
+        textcoords="offset points",
+        arrowprops=dict(arrowstyle="->", color="#0D47A1", lw=1.2,
+                        connectionstyle="arc3,rad=0.12"),
+        bbox=dict(boxstyle="round,pad=0.4", fc="white",
+                  ec="#0D47A1", lw=1.0, alpha=0.95),
+        fontsize=9, color="#0D47A1", zorder=11,
+    )
+
+
+def _log_centroid(xs: List[float], ys: List[float]) -> Tuple[float, float]:
+    log_xs = [math.log10(v) for v in xs]
+    log_ys = [math.log10(v) for v in ys]
+    return 10 ** (sum(log_xs) / len(log_xs)), 10 ** (sum(log_ys) / len(log_ys))
+
+
+def _label_region(ax, x: float, y: float, text: str, category: str) -> None:
+    ax.text(x, y, text, fontsize=11, fontweight="bold",
+            color="#1A237E", ha="center", va="center", zorder=4,
+            bbox=dict(boxstyle="round,pad=0.28",
+                      fc=CATEGORY_COLORS.get(category, "#FFFFFF"),
+                      ec="#37474F", lw=0.6, alpha=0.85))
+
+
+def _build_figure():
     from matplotlib import pyplot as plt
+    fig, ax = plt.subplots(figsize=(10.5, 7.2), dpi=110)
+    fig.patch.set_facecolor("#FAFAFA")
+    ax.set_facecolor("#FFFFFF")
+    return fig, ax
+
+
+def _save_figure(fig) -> io.BytesIO:
+    from matplotlib import pyplot as plt
+    fig.tight_layout()
+    img = io.BytesIO()
+    fig.savefig(img, format="png", bbox_inches="tight", facecolor=fig.get_facecolor())
+    img.seek(0)
+    plt.close(fig)
+    return img
+
+
+def _build_title(table_name: str) -> str:
+    description = TABLE_DESCRIPTIONS.get(table_name, table_name.replace("_", " ").title())
+    table_label = table_name.replace("_", " ").title()
+    return f"PED Annex II {table_label}  \u2014  {description}"
+
+
+def _generate_piping_diagram(data: ClassificationInput, table_name: str, dn_value: float) -> io.BytesIO:
     import numpy as np
 
     rule_set = PIPING_RULES.get((data.medium_state, data.medium_group))
     if rule_set is None:
         raise ValueError("No piping rules for this medium combination.")
 
-    fig, ax = plt.subplots(figsize=(10, 7))
-
-    colors_map = {
-        "Category 0": "#B0E0E6",
-        "Category I": "#90EE90",
-        "Category II": "#FFFF99",
-        "Category III": "#FFDAB9",
-    }
+    fig, ax = _build_figure()
 
     dn_min, dn_max = 1, 2000
     ps_min, ps_max = 0.5, 1000
-    dn_range = np.logspace(np.log10(dn_min), np.log10(dn_max), 220)
-    ps_range = np.logspace(np.log10(ps_min), np.log10(ps_max), 220)
+    dn_range = np.logspace(np.log10(dn_min), np.log10(dn_max), 360)
+    ps_range = np.logspace(np.log10(ps_min), np.log10(ps_max), 360)
     dn_grid, ps_grid = np.meshgrid(dn_range, ps_range)
     category_grid = classify_piping_for_diagram(rule_set, ps_grid, dn_grid)
 
@@ -529,77 +670,67 @@ def _generate_piping_diagram(data: ClassificationInput, table_name: str, dn_valu
         mask = category_grid == category
         if not mask.any():
             continue
-        alpha = 0.4 if category == "Category 0" else 0.7
-        label = "SEP / Art. 4(3)" if category == "Category 0" else category
+        alpha = 0.38 if category == "Category 0" else 0.52
         ax.contourf(
-            dn_grid,
-            ps_grid,
-            mask.astype(float),
+            dn_grid, ps_grid, mask.astype(float),
             levels=[0.5, 1.5],
-            colors=[colors_map[category]],
-            alpha=alpha,
+            colors=[CATEGORY_COLORS[category]],
+            alpha=alpha, zorder=1,
         )
-        ax.plot([], [], color=colors_map[category], linewidth=10, alpha=alpha, label=label)
+        log_dn = np.log10(dn_grid[mask])
+        log_ps = np.log10(ps_grid[mask])
+        label_x = 10 ** log_dn.mean()
+        label_y = 10 ** log_ps.mean()
+        text = "SEP / Art. 4(3)" if category == "Category 0" else category
+        _label_region(ax, label_x, label_y, text, category)
 
-    ax.plot(dn_value, data.pressure, "bo", markersize=8,
-            label=f"Equipment (PS={data.pressure}, DN={dn_value})")
-    ax.set_xlabel("DN (nominal diameter)")
-    ax.set_ylabel("Pressure PS (bar)")
-    ax.set_title(f"PED Classification: Piping \u2014 {table_name.replace('_', ' ').title()}")
-    ax.set_xscale("log")
-    ax.set_yscale("log")
-    ax.set_xlim(dn_min, dn_max)
-    ax.set_ylim(ps_min, ps_max)
-    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.15), ncol=3)
-    plt.tight_layout(rect=[0, 0, 1, 0.95])
-
-    img = io.BytesIO()
-    plt.savefig(img, format="png")
-    img.seek(0)
-    plt.close(fig)
-    return img
+    _draw_isopleths(ax, table_name, (dn_min, dn_max), (ps_min, ps_max), product_axis="dn")
+    _annotate_equipment_point(ax, dn_value, data.pressure, "DN",
+                              (dn_min, dn_max), (ps_min, ps_max))
+    _style_axes(ax, "DN (nominal diameter)", "PS (bar)",
+                _build_title(table_name),
+                (dn_min, dn_max), (ps_min, ps_max))
+    return _save_figure(fig)
 
 
 def generate_ped_diagram(data: ClassificationInput) -> io.BytesIO:
-    from matplotlib import pyplot as plt
-
     table_name, x_value, x_label = diagram_table_for_input(data)
     if table_name is None or x_value is None:
         raise ValueError("Diagram generation is not available for this equipment configuration.")
 
-    if data.equipment_type == "Piping" or (data.equipment_type == "Pressure accessories" and table_name.startswith("table_") and int(table_name.split("_")[1]) >= 6):
+    if data.equipment_type == "Piping" or (
+        data.equipment_type == "Pressure accessories"
+        and table_name.startswith("table_")
+        and int(table_name.split("_")[1]) >= 6
+    ):
         return _generate_piping_diagram(data, table_name, x_value)
 
     coordinates = TABLE_POLYGONS[table_name]
-    fig, ax = plt.subplots(figsize=(10, 7))
+    fig, ax = _build_figure()
 
-    colors = {
-        "cat_0": ("#B0E0E6", 0.4, "Category 0"),
-        "cat_i": ("#90EE90", 0.7, "Category I"),
-        "cat_ib": ("#90EE90", 0.7, "Category I"),
-        "cat_ii": ("#FFFF99", 0.7, "Category II"),
-        "cat_iib": ("#FFFF99", 0.7, "Category II"),
-        "cat_iii": ("#FFDAB9", 0.7, "Category III"),
-        "cat_iv": ("#FFB6C1", 0.7, "Category IV"),
-    }
+    x_lim = (0.1, 100000)
+    y_lim = (0.1, 10000)
 
-    for poly_key, (color, alpha, label) in colors.items():
-        if poly_key in coordinates:
-            ax.fill(coordinates[poly_key]["x"], coordinates[poly_key]["y"], color=color, alpha=alpha, label=label)
+    # Fill polygons from lowest risk to highest so higher categories
+    # paint on top; use a consistent palette and mid alpha.
+    fill_order = ["cat_0", "cat_i", "cat_ib", "cat_ii", "cat_iib", "cat_iii", "cat_iv"]
+    for poly_key in fill_order:
+        if poly_key not in coordinates:
+            continue
+        category = POLYGON_CATEGORY_KEY[poly_key]
+        color = CATEGORY_COLORS[category]
+        alpha = 0.38 if category == "Category 0" else 0.55
+        xs = coordinates[poly_key]["x"]
+        ys = coordinates[poly_key]["y"]
+        ax.fill(xs, ys, color=color, alpha=alpha, zorder=1,
+                edgecolor="#37474F", linewidth=0.5)
+        label_x, label_y = _log_centroid(xs, ys)
+        text = "SEP / Art. 4(3)" if category == "Category 0" else category
+        _label_region(ax, label_x, label_y, text, category)
 
-    ax.plot(x_value, data.pressure, "bo", markersize=8, label=f"Equipment (PS={data.pressure} bar)")
-    ax.set_xlabel(x_label)
-    ax.set_ylabel("Pressure (bar)")
-    ax.set_title(f"PED Classification: {data.equipment_type} - {table_name.replace('_', ' ').title()}")
-    ax.set_xscale("log")
-    ax.set_yscale("log")
-    ax.set_xlim(0.1, 100000)
-    ax.set_ylim(0.1, 10000)
-    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.15), ncol=3)
-    plt.tight_layout(rect=[0, 0, 1, 0.95])
-
-    img = io.BytesIO()
-    plt.savefig(img, format="png")
-    img.seek(0)
-    plt.close(fig)
-    return img
+    _draw_isopleths(ax, table_name, x_lim, y_lim, product_axis="v")
+    _annotate_equipment_point(ax, x_value, data.pressure,
+                              "V" if "Volume" in x_label else x_label,
+                              x_lim, y_lim)
+    _style_axes(ax, x_label, "PS (bar)", _build_title(table_name), x_lim, y_lim)
+    return _save_figure(fig)
