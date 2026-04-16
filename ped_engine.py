@@ -72,30 +72,51 @@ TABLE_POLYGONS = {
     },
 }
 
-PIPELINE_THRESHOLDS = {
-    ("gaseous", "Group 1 - dangerous"): [
-        (1000, "Category IV"),
-        (100, "Category III"),
-        (50, "Category II"),
-        (0, "Category I"),
-    ],
-    ("gaseous", "Group 2 - all others"): [
-        (1000, "Category III"),
-        (100, "Category II"),
-        (50, "Category I"),
-        (0, "Category 0"),
-    ],
-    ("liquid_low", "Group 1 - dangerous"): [
-        (1000, "Category III"),
-        (200, "Category II"),
-        (50, "Category I"),
-        (0, "Category 0"),
-    ],
-    ("liquid_low", "Group 2 - all others"): [
-        (1000, "Category II"),
-        (50, "Category I"),
-        (0, "Category 0"),
-    ],
+# Piping classification rules per PED 2014/68/EU Annex II, Tables 6-9.
+# Each rule set defines:
+#   - scope_entry: combined conditions from Article 4(1)(c) to enter PED scope
+#   - categories:  checked highest-first; first match wins
+# Internal category boundaries are approximations read from the Annex II
+# charts and should be verified point-by-point for production use.
+PIPING_RULES = {
+    # Table 6: Gas / vapour, Group 1 (dangerous)
+    ("gaseous", "Group 1 - dangerous"): {
+        "table": "table_6",
+        "scope_entry": {"dn_gt": 25},
+        "categories": [
+            {"category": "Category III", "dn_gt": 100, "ps_dn_gt": 5000},
+            {"category": "Category II", "dn_gt": 25, "ps_dn_gt": 2000},
+            {"category": "Category I"},
+        ],
+    },
+    # Table 7: Gas / vapour, Group 2
+    ("gaseous", "Group 2 - all others"): {
+        "table": "table_7",
+        "scope_entry": {"dn_gt": 32, "ps_dn_gt": 1000},
+        "categories": [
+            {"category": "Category III", "dn_gt": 250, "ps_dn_gt": 5000},
+            {"category": "Category II", "dn_gt": 100, "ps_dn_gt": 3500},
+            {"category": "Category I"},
+        ],
+    },
+    # Table 8: Liquid (VP ≤ 0.5 bar), Group 1 (dangerous)
+    ("liquid_low", "Group 1 - dangerous"): {
+        "table": "table_8",
+        "scope_entry": {"dn_gt": 25, "ps_dn_gt": 2000},
+        "categories": [
+            {"category": "Category III", "dn_gt": 200, "ps_dn_gt": 10000},
+            {"category": "Category II", "dn_gt": 100, "ps_dn_gt": 5000},
+            {"category": "Category I"},
+        ],
+    },
+    # Table 9: Liquid (VP ≤ 0.5 bar), Group 2
+    ("liquid_low", "Group 2 - all others"): {
+        "table": "table_9",
+        "scope_entry": {"ps_gt": 10, "dn_gt": 200, "ps_dn_gt": 5000},
+        "categories": [
+            {"category": "Category I"},
+        ],
+    },
 }
 
 POLYGON_ORDER = [
@@ -257,37 +278,59 @@ def classify_steam_generator(data: ClassificationInput) -> Tuple[str, str, List[
     return category, "table_5", notes
 
 
+def _piping_scope_check(entry: Dict, ps: float, dn: float, ps_dn: float) -> bool:
+    """Return True if the equipment meets ALL scope-entry conditions."""
+    if "ps_gt" in entry and ps <= entry["ps_gt"]:
+        return False
+    if "dn_gt" in entry and dn <= entry["dn_gt"]:
+        return False
+    if "ps_dn_gt" in entry and ps_dn <= entry["ps_dn_gt"]:
+        return False
+    return True
+
+
 def classify_piping(data: ClassificationInput) -> Tuple[str, str, List[str]]:
     diameter = ensure_positive("Diameter DN", data.diameter)
-    thresholds = PIPELINE_THRESHOLDS.get((data.medium_state, data.medium_group))
-    if thresholds is None:
+    rule_set = PIPING_RULES.get((data.medium_state, data.medium_group))
+    if rule_set is None:
         raise ValueError("Unsupported combination of medium state and medium group for piping.")
 
-    notes = [
-        "Piping is evaluated on a PS x DN basis in the current project rule set.",
-        "For legally sensitive use, verify the project thresholds against PED Annex II Tables 6-9."
-    ]
+    table_name = rule_set["table"]
     ps_dn = data.pressure * diameter
-    category = "Unknown Category"
-    for threshold, candidate in thresholds:
-        if ps_dn >= threshold:
-            category = candidate
+    notes = [
+        "Piping classification uses combined PS, DN, and PS\u00d7DN conditions per Annex II.",
+        "Internal category boundaries are approximate — verify against official Annex II charts for production use.",
+    ]
+
+    # Check scope entry (Article 4(1)(c))
+    if not _piping_scope_check(rule_set["scope_entry"], data.pressure, diameter, ps_dn):
+        return "Category 0", table_name, notes + [
+            f"Below PED scope for {table_name.replace('_', ' ').title()}: "
+            f"PS={data.pressure} bar, DN={diameter}, PS\u00d7DN={ps_dn:.0f}."
+        ]
+
+    # Walk categories from highest to lowest; first match wins
+    category = "Category I"  # fallback if in scope
+    for rule in rule_set["categories"]:
+        matches = True
+        if "dn_gt" in rule and diameter <= rule["dn_gt"]:
+            matches = False
+        if "ps_dn_gt" in rule and ps_dn <= rule["ps_dn_gt"]:
+            matches = False
+        if "ps_gt" in rule and data.pressure <= rule["ps_gt"]:
+            matches = False
+        if matches:
+            category = rule["category"]
             break
 
-    table_name = {
-        ("gaseous", "Group 1 - dangerous"): "table_6",
-        ("gaseous", "Group 2 - all others"): "table_7",
-        ("liquid_low", "Group 1 - dangerous"): "table_8",
-        ("liquid_low", "Group 2 - all others"): "table_9",
-    }[(data.medium_state, data.medium_group)]
-
+    # Special-case uplifts
     if data.unstable_gas and table_name == "table_6" and category in {"Category I", "Category II"}:
         category = "Category III"
         notes.append("Unstable gas uplift applied: Table 6 piping in Category I/II moves to Category III.")
 
     if table_name == "table_7" and data.fluid_temperature_c is not None and data.fluid_temperature_c > 350 and category == "Category II":
         category = "Category III"
-        notes.append("High-temperature uplift applied: Table 7 piping above 350 C in Category II moves to Category III.")
+        notes.append("High-temperature uplift applied: Table 7 piping above 350\u00b0C in Category II moves to Category III.")
 
     return category, table_name, notes
 
@@ -370,7 +413,94 @@ def diagram_table_for_input(data: ClassificationInput) -> Tuple[Optional[str], O
         return "table_5", ensure_positive("Volume", data.volume), "Volume (L)"
     if data.equipment_type == "Pressure accessories" and data.volume and data.volume > 0:
         return vessel_table_for_input(data), data.volume, "Volume (L)"
+    if data.equipment_type == "Piping":
+        table_name = {
+            ("gaseous", "Group 1 - dangerous"): "table_6",
+            ("gaseous", "Group 2 - all others"): "table_7",
+            ("liquid_low", "Group 1 - dangerous"): "table_8",
+            ("liquid_low", "Group 2 - all others"): "table_9",
+        }.get((data.medium_state, data.medium_group))
+        if table_name and data.diameter and data.diameter > 0:
+            return table_name, data.diameter, "DN"
     return None, None, "N/A"
+
+
+def _generate_piping_diagram(data: ClassificationInput, table_name: str, dn_value: float) -> io.BytesIO:
+    from matplotlib import pyplot as plt
+    import numpy as np
+
+    rule_set = PIPING_RULES.get((data.medium_state, data.medium_group))
+    if rule_set is None:
+        raise ValueError("No piping rules for this medium combination.")
+
+    fig, ax = plt.subplots(figsize=(10, 7))
+
+    colors_map = {
+        "Category 0": ("#B0E0E6", 0.4),
+        "Category I": ("#90EE90", 0.7),
+        "Category II": ("#FFFF99", 0.7),
+        "Category III": ("#FFDAB9", 0.7),
+    }
+
+    dn_min, dn_max = 1, 2000
+    ps_min, ps_max = 0.5, 1000
+    dn_range = np.logspace(np.log10(dn_min), np.log10(dn_max), 500)
+
+    # Collect PS×DN boundary curves from the rule set
+    boundaries = []
+    for rule in rule_set["categories"]:
+        ps_dn_gt = rule.get("ps_dn_gt", 0)
+        dn_gt = rule.get("dn_gt", 0)
+        boundaries.append((ps_dn_gt, dn_gt, rule["category"]))
+
+    # Add scope entry as lowest boundary
+    entry = rule_set["scope_entry"]
+    scope_ps_dn = entry.get("ps_dn_gt", 0)
+    scope_dn = entry.get("dn_gt", 0)
+    boundaries.append((scope_ps_dn, scope_dn, "Category 0"))
+
+    # Sort by PS×DN descending (draw highest category first as background)
+    boundaries.sort(key=lambda b: b[0], reverse=True)
+
+    drawn_labels = set()
+    # Draw SEP/Category 0 as full background
+    label_0 = "SEP / Art. 4(3)" if "SEP / Art. 4(3)" not in drawn_labels else None
+    ax.fill_between(dn_range, ps_min, ps_max, color=colors_map["Category 0"][0],
+                     alpha=colors_map["Category 0"][1], label="SEP / Art. 4(3)")
+    drawn_labels.add("SEP / Art. 4(3)")
+
+    # Draw each category region on top
+    for ps_dn_val, dn_gt, category in reversed(boundaries):
+        if category == "Category 0":
+            continue
+        color, alpha = colors_map.get(category, ("#CCCCCC", 0.3))
+        ps_curve = np.where(
+            dn_range > dn_gt,
+            np.maximum(ps_dn_val / dn_range, ps_min) if ps_dn_val > 0 else ps_min,
+            ps_max + 1,  # hide region where DN condition not met
+        )
+        label = category if category not in drawn_labels else None
+        drawn_labels.add(category)
+        ax.fill_between(dn_range, ps_curve, ps_max, where=(ps_curve <= ps_max),
+                         color=color, alpha=alpha, label=label)
+
+    ax.plot(dn_value, data.pressure, "bo", markersize=8,
+            label=f"Equipment (PS={data.pressure}, DN={dn_value})")
+    ax.set_xlabel("DN (nominal diameter)")
+    ax.set_ylabel("Pressure PS (bar)")
+    ax.set_title(f"PED Classification: Piping \u2014 {table_name.replace('_', ' ').title()}")
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.set_xlim(dn_min, dn_max)
+    ax.set_ylim(ps_min, ps_max)
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.15), ncol=3)
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+
+    img = io.BytesIO()
+    plt.savefig(img, format="png")
+    img.seek(0)
+    plt.close(fig)
+    return img
 
 
 def generate_ped_diagram(data: ClassificationInput) -> io.BytesIO:
@@ -378,7 +508,10 @@ def generate_ped_diagram(data: ClassificationInput) -> io.BytesIO:
 
     table_name, x_value, x_label = diagram_table_for_input(data)
     if table_name is None or x_value is None:
-        raise ValueError("Diagram generation is available only for PS/V-based equipment in this project version.")
+        raise ValueError("Diagram generation is not available for this equipment configuration.")
+
+    if data.equipment_type == "Piping" or (data.equipment_type == "Pressure accessories" and table_name.startswith("table_") and int(table_name.split("_")[1]) >= 6):
+        return _generate_piping_diagram(data, table_name, x_value)
 
     coordinates = TABLE_POLYGONS[table_name]
     fig, ax = plt.subplots(figsize=(10, 7))

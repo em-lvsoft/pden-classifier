@@ -67,12 +67,13 @@ class PedEngineTests(unittest.TestCase):
             )
 
     def test_table_7_high_temperature_uplift(self):
+        # PS=30, DN=150 => PS×DN=4500 > 3500, DN>100 => Category II
         cool = classify_ped(
             ClassificationInput(
                 equipment_type="Piping",
                 medium_state="gaseous",
-                pressure=2,
-                diameter=60,
+                pressure=30,
+                diameter=150,
                 medium_group="Group 2 - all others",
                 fluid_temperature_c=200,
             )
@@ -81,14 +82,40 @@ class PedEngineTests(unittest.TestCase):
             ClassificationInput(
                 equipment_type="Piping",
                 medium_state="gaseous",
-                pressure=2,
-                diameter=60,
+                pressure=30,
+                diameter=150,
                 medium_group="Group 2 - all others",
                 fluid_temperature_c=400,
             )
         )
         self.assertEqual(cool.category, "Category II")
         self.assertEqual(hot.category, "Category III")
+
+    def test_table_9_below_scope(self):
+        # PS=2.5, DN=200: PS<=10 => below Table 9 scope => Category 0
+        result = classify_ped(
+            ClassificationInput(
+                equipment_type="Piping",
+                medium_state="liquid_low",
+                pressure=2.5,
+                diameter=200,
+                medium_group="Group 2 - all others",
+            )
+        )
+        self.assertEqual(result.category, "Category 0")
+
+    def test_table_6_gas_group1_category_iii(self):
+        # PS=30, DN=200 => PS×DN=6000 > 5000, DN>100 => Category III
+        result = classify_ped(
+            ClassificationInput(
+                equipment_type="Piping",
+                medium_state="gaseous",
+                pressure=30,
+                diameter=200,
+                medium_group="Group 1 - dangerous",
+            )
+        )
+        self.assertEqual(result.category, "Category III")
 
     def test_pressure_accessory_takes_higher_of_v_and_dn_paths(self):
         result = classify_ped(
